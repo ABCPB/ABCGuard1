@@ -134,7 +134,7 @@ let qingyuHTML = """
 </html>
 """
 
-// MARK: - AI 视图控制器（捕获异常，防止崩溃）
+// MARK: - AI 视图控制器
 @available(iOS 13.0, *)
 class AIWebViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHandler {
     private var webView: WKWebView?
@@ -145,7 +145,7 @@ class AIWebViewController: UIViewController, WKNavigationDelegate, WKScriptMessa
         self.htmlString = html
         super.init(nibName: nil, bundle: nil)
     }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    required init?(coder: NSCoder) { fatalError() }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -182,7 +182,7 @@ protocol AIWebViewControllerDelegate: AnyObject {
     func aiWebViewControllerDidRequestExit(_ controller: AIWebViewController)
 }
 
-// MARK: - 全局控制器（所有 UI 操作在主线程，避免 nil 解包）
+// MARK: - 全局控制器
 @available(iOS 13.0, *)
 class AIController: NSObject, AIWebViewControllerDelegate {
     static let shared = AIController()
@@ -192,7 +192,6 @@ class AIController: NSObject, AIWebViewControllerDelegate {
     private override init() { super.init() }
 
     func activate() {
-        // 延迟并重试获取 window
         DispatchQueue.main.async {
             self.tryActivate()
         }
@@ -241,7 +240,6 @@ class AIController: NSObject, AIWebViewControllerDelegate {
         exitAI()
     }
 
-    // 在应用启动时注册通知
     func startObserving() {
         NotificationCenter.default.addObserver(
             self,
@@ -252,13 +250,12 @@ class AIController: NSObject, AIWebViewControllerDelegate {
     }
 }
 
-// MARK: - C 构造函数（动态库入口，兼容免越狱）
-__attribute__((constructor))
-void my_constructor() {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (@available(iOS 13.0, *)) {
-            [[AIController shared] startObserving];
-            [[AIController shared] activate];
+// MARK: - 自动执行入口（动态库加载时运行）
+private let _entry: Void = {
+    DispatchQueue.main.async {
+        if #available(iOS 13.0, *) {
+            AIController.shared.startObserving()
+            AIController.shared.activate()
         }
-    });
-}
+    }
+}()
