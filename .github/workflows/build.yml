@@ -11,9 +11,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build dylib
         run: |
-          xcrun --sdk iphoneos swiftc -target arm64-apple-ios -emit-library -o ABCGuard.dylib -module-name ABCGuard \
+          xcrun --sdk iphoneos swiftc -target arm64-apple-ios13.0 -emit-library -o ABCGuard.dylib -module-name ABCGuard \
           -Xcc -fobjc-arc \
-          -framework UIKit \
+          -framework UIKit -framework WebKit \
           ABCGuard.swift
       - name: Upload artifact
         uses: actions/upload-artifact@v4
