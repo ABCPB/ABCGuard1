@@ -6,22 +6,19 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-
       - name: Build dylib
         run: |
-          xcodebuild -create-xcframework \
-            -library <(xcrun --sdk iphoneos swiftc \
-              -emit-library -o ABCGuard.dylib -module-name ABCGuard \
-              -Xcc -fobjc-arc \
-              -framework UIKit -framework WebKit \
-              ABCGuard.swift \
-              && echo "$PWD/ABCGuard.dylib") \
-            -output ABCGuard.xcframework
-          mv ABCGuard.xcframework/ios-arm64/ABCGuard.dylib .
-
+          SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)
+          swiftc -target arm64-apple-ios15.0 \
+                 -sdk "$SDKROOT" \
+                 -resource-dir "$SDKROOT/usr/lib/swift" \
+                 -emit-library -o ABCGuard.dylib -module-name ABCGuard \
+                 -Xcc -fobjc-arc \
+                 -framework UIKit -framework WebKit \
+                 ABCGuard.swift
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
