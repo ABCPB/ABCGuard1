@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 import WebKit
 
-// MARK: - 内嵌 HTML（完整的青语 AI 聊天界面，已添加退出通信）
+// MARK: - 内嵌 HTML（青语 AI 界面，输入 ABC 发送后退出）
 let qingyuHTML = """
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -96,12 +96,10 @@ let qingyuHTML = """
         <textarea id="userInput" rows="1" placeholder="输入消息..."></textarea>
         <button id="sendBtn">➤</button>
     </div>
-
     <script>
         const messagesDiv = document.getElementById('chatMessages');
         const input = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
-
         function addMessage(text, isUser) {
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message ' + (isUser ? 'user' : 'ai');
@@ -109,13 +107,10 @@ let qingyuHTML = """
             messagesDiv.appendChild(msgDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
-
         function sendMessage() {
             let text = input.value.trim();
             if (text === "") return;
-            // 检测是否输入 ABC (不区分大小写)
             if (text.toUpperCase() === "ABC") {
-                // 通知 native 退出 AI 界面
                 if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.exit) {
                     window.webkit.messageHandlers.exit.postMessage(null);
                 }
@@ -123,12 +118,10 @@ let qingyuHTML = """
             }
             addMessage(text, true);
             input.value = "";
-            // 模拟 AI 回复
             setTimeout(() => {
                 addMessage("收到：" + text, false);
             }, 500);
         }
-
         sendBtn.addEventListener('click', sendMessage);
         input.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -141,10 +134,10 @@ let qingyuHTML = """
 </html>
 """
 
-// MARK: - AI WebView 控制器（必须标记可用性，避免编译错误）
+// MARK: - AI 视图控制器（捕获异常，防止崩溃）
 @available(iOS 13.0, *)
 class AIWebViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHandler {
-    private var webView: WKWebView!
+    private var webView: WKWebView?
     private let htmlString: String
     weak var delegate: AIWebViewControllerDelegate?
 
@@ -152,24 +145,30 @@ class AIWebViewController: UIViewController, WKNavigationDelegate, WKScriptMessa
         self.htmlString = html
         super.init(nibName: nil, bundle: nil)
     }
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        setupWebView()
+    }
+
+    private func setupWebView() {
         let config = WKWebViewConfiguration()
         let userController = WKUserContentController()
         userController.add(self, name: "exit")
         config.userContentController = userController
-        webView = WKWebView(frame: .zero, configuration: config)
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(webView)
+        let wv = WKWebView(frame: .zero, configuration: config)
+        wv.translatesAutoresizingMaskIntoConstraints = false
+        wv.navigationDelegate = self
+        view.addSubview(wv)
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: view.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+            wv.topAnchor.constraint(equalTo: view.topAnchor),
+            wv.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            wv.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            wv.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
-        webView.loadHTMLString(htmlString, baseURL: nil)
+        self.webView = wv
+        wv.loadHTMLString(htmlString, baseURL: nil)
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -183,7 +182,7 @@ protocol AIWebViewControllerDelegate: AnyObject {
     func aiWebViewControllerDidRequestExit(_ controller: AIWebViewController)
 }
 
-// MARK: - 全局控制器
+// MARK: - 全局控制器（所有 UI 操作在主线程，避免 nil 解包）
 @available(iOS 13.0, *)
 class AIController: NSObject, AIWebViewControllerDelegate {
     static let shared = AIController()
@@ -193,24 +192,30 @@ class AIController: NSObject, AIWebViewControllerDelegate {
     private override init() { super.init() }
 
     func activate() {
+        // 延迟并重试获取 window
         DispatchQueue.main.async {
-            guard let window = UIApplication.shared.keyWindow,
-                  let root = window.rootViewController else { return }
-            self.originalRootVC = root
-            if !self.isAIActive {
-                self.showAI()
-            }
+            self.tryActivate()
         }
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(foreground),
-            name: UIApplication.willEnterForegroundNotification,
-            object: nil
-        )
+    }
+
+    private func tryActivate(retryCount: Int = 0) {
+        guard let window = UIApplication.shared.windows.first(where: { $0.isKeyWindow }),
+              let root = window.rootViewController else {
+            if retryCount < 10 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.tryActivate(retryCount: retryCount + 1)
+                }
+            }
+            return
+        }
+        self.originalRootVC = root
+        if !self.isAIActive {
+            self.showAI()
+        }
     }
 
     private func showAI() {
-        guard let window = UIApplication.shared.keyWindow else { return }
+        guard let window = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) else { return }
         let aiVC = AIWebViewController(html: qingyuHTML)
         aiVC.delegate = self
         window.rootViewController = aiVC
@@ -220,7 +225,7 @@ class AIController: NSObject, AIWebViewControllerDelegate {
 
     private func exitAI() {
         guard let original = originalRootVC,
-              let window = UIApplication.shared.keyWindow else { return }
+              let window = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) else { return }
         window.rootViewController = original
         window.makeKeyAndVisible()
         isAIActive = false
@@ -235,21 +240,25 @@ class AIController: NSObject, AIWebViewControllerDelegate {
     func aiWebViewControllerDidRequestExit(_ controller: AIWebViewController) {
         exitAI()
     }
-}
 
-// MARK: - 动态库入口
-@_cdecl("initialize")
-public func initialize() {
-    if #available(iOS 13.0, *) {
-        AIController.shared.activate()
+    // 在应用启动时注册通知
+    func startObserving() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(foreground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
     }
 }
 
-// 静态初始化后备
-private let _entry: Void = {
-    if #available(iOS 13.0, *) {
-        DispatchQueue.main.async {
-            AIController.shared.activate()
+// MARK: - C 构造函数（动态库入口，兼容免越狱）
+__attribute__((constructor))
+void my_constructor() {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (@available(iOS 13.0, *)) {
+            [[AIController shared] startObserving];
+            [[AIController shared] activate];
         }
-    }
-}()
+    });
+}
