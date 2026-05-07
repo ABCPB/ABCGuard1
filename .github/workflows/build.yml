@@ -2,21 +2,21 @@ name: Build ABCGuard.dylib
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:   # <-- 手动触发
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Build dylib
-        run: |
-          xcrun -sdk iphoneos swiftc -emit-library -o ABCGuard.dylib \
-            -module-name ABCGuard \
-            -Xcc -fobjc-arc \
-            -framework UIKit -framework WebKit \
-            ABCGuard.swift
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ABCGuard.dylib
-          path: ABCGuard.dylib
+    - uses: actions/checkout@v4
+    - name: Build dylib
+      run: |
+        xcrun -sdk iphoneos swiftc -emit-library -o ABCGuard.dylib -module-name ABCGuard \
+        -Xcc -fobjc-arc \
+        -framework UIKit -framework WebKit \
+        ABCGuard.swift
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ABCGuard.dylib
+        path: ABCGuard.dylib
