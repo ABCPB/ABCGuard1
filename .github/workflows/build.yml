@@ -1,39 +1,22 @@
-name: Build ABCGuard dylib
+name: Build ABCGuard.dylib
 on:
-  workflow_dispatch: # 支持手动触发
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-15 # GitHub Actions 的 macOS 环境（arm64）
+    runs-on: macos-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Select Xcode version
-        run: |
-          # 使用最新稳定版 Xcode，确保 iOS SDK 完整
-          sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
-          xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-path
-
-      - name: Build ABCGuard.dylib
-        run: |
-          # 这里替换成你的 Swift 源文件路径（比如 ABCGuard.swift）
-          SOURCE_FILE="ABCGuard.swift"
-          
-          # 关键：-target 指定 iOS 平台，和 -sdk iphoneos 对应
-          xcrun -sdk iphoneos swiftc \
-            -emit-library \
-            -o ABCGuard.dylib \
-            -module-name ABCGuard \
-            -target arm64-apple-ios15.0 \
-            -swift-version 5 \
-            "$SOURCE_FILE"
-
-      - name: Upload built dylib
-        uses: actions/upload-artifact@v4
-        with:
-          name: ABCGuard-dylib
-          path: ABCGuard.dylib
+    - uses: actions/checkout@v4
+    - name: Build dylib
+      run: |
+        swiftc -target arm64-apple-ios -emit-library -o ABCGuard.dylib -module-name ABCGuard \
+        -Xcc -fobjc-arc \
+        -framework UIKit -framework WebKit \
+        ABCGuard.swift
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ABCGuard.dylib
+        path: ABCGuard.dylib
