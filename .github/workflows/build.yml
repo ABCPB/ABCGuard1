@@ -11,14 +11,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build dylib
         run: |
-          SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)
-          swiftc -target arm64-apple-ios15.0 \
-                 -sdk "$SDKROOT" \
-                 -resource-dir "$SDKROOT/usr/lib/swift" \
-                 -emit-library -o ABCGuard.dylib -module-name ABCGuard \
-                 -Xcc -fobjc-arc \
-                 -framework UIKit -framework WebKit \
-                 ABCGuard.swift
+          xcrun --sdk iphoneos swiftc -target arm64-apple-ios -emit-library -o ABCGuard.dylib -module-name ABCGuard \
+          -Xcc -fobjc-arc \
+          -framework UIKit \
+          ABCGuard.swift
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
