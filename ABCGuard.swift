@@ -1,132 +1,124 @@
 import Foundation
 import UIKit
-import WebKit
 
-// MARK: - 内嵌 HTML（青语 AI，输入 ABC 发送后通知 native 关闭）
-let qingyuHTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family:system-ui; background:#f0fdfa; height:100vh; display:flex; flex-direction:column; }
-        header { background:#0d9488; color:white; padding:16px; text-align:center; font-size:1.2rem; font-weight:bold; }
-        .msgs { flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:8px; }
-        .msg { max-width:80%; padding:8px 12px; border-radius:18px; }
-        .user { align-self:flex-end; background:#0d9488; color:white; }
-        .ai { align-self:flex-start; background:white; border:1px solid #ccfbf1; }
-        .input-area { display:flex; padding:8px; background:white; gap:8px; border-top:1px solid #ccc; }
-        textarea { flex:1; border:1px solid #ccc; border-radius:20px; padding:8px; resize:none; }
-        button { background:#0d9488; border:none; border-radius:30px; width:44px; color:white; font-size:1.2rem; }
-    </style>
-</head>
-<body>
-    <header>🦋 青语 AI</header>
-    <div class="msgs" id="msgs"><div class="msg ai">输入 ABC 可退出插件</div></div>
-    <div class="input-area">
-        <textarea id="input" rows="1" placeholder="输入消息..."></textarea>
-        <button id="send">➤</button>
-    </div>
-    <script>
-        const msgsDiv = document.getElementById('msgs');
-        const input = document.getElementById('input');
-        const btn = document.getElementById('send');
-        function addMsg(text, isUser) {
-            const div = document.createElement('div');
-            div.className = 'msg ' + (isUser ? 'user' : 'ai');
-            div.textContent = text;
-            msgsDiv.appendChild(div);
-            msgsDiv.scrollTop = msgsDiv.scrollHeight;
-        }
-        function send() {
-            let txt = input.value.trim();
-            if (!txt) return;
-            if (txt.toUpperCase() === "ABC") {
-                if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.exit) {
-                    window.webkit.messageHandlers.exit.postMessage(null);
-                }
-                return;
+// 原生聊天悬浮窗（轻量、安全）
+class NativeChatView: UIView, UITextFieldDelegate {
+    private let textView = UITextView()
+    private let textField = UITextField()
+    private let sendButton = UIButton(type: .system)
+    private var messages: [String] = []
+    private var onExit: (() -> Void)?
+
+    init(frame: CGRect, onExit: @escaping () -> Void) {
+        self.onExit = onExit
+        super.init(frame: frame)
+        setupUI()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setupUI() {
+        backgroundColor = UIColor(red: 0.94, green: 0.98, blue: 0.96, alpha: 1.0)
+        
+        // 头部
+        let header = UILabel(frame: CGRect(x: 0, y: 0, width: frame.width, height: 60))
+        header.text = "🦋 青语 AI 自由对话"
+        header.textAlignment = .center
+        header.backgroundColor = UIColor(red: 0.05, green: 0.52, blue: 0.53, alpha: 1.0)
+        header.textColor = .white
+        header.font = UIFont.boldSystemFont(ofSize: 18)
+        addSubview(header)
+        
+        // 消息显示区
+        textView.frame = CGRect(x: 10, y: 70, width: frame.width - 20, height: frame.height - 140)
+        textView.isEditable = false
+        textView.backgroundColor = .white
+        textView.layer.cornerRadius = 12
+        textView.font = UIFont.systemFont(ofSize: 14)
+        addSubview(textView)
+        
+        // 输入框
+        textField.frame = CGRect(x: 10, y: frame.height - 60, width: frame.width - 90, height: 44)
+        textField.borderStyle = .roundedRect
+        textField.placeholder = "输入消息... (输入 ABC 退出)"
+        textField.returnKeyType = .send
+        textField.delegate = self
+        addSubview(textField)
+        
+        // 发送按钮
+        sendButton.frame = CGRect(x: frame.width - 70, y: frame.height - 60, width: 60, height: 44)
+        sendButton.setTitle("发送", for: .normal)
+        sendButton.backgroundColor = UIColor(red: 0.05, green: 0.52, blue: 0.53, alpha: 1.0)
+        sendButton.setTitleColor(.white, for: .normal)
+        sendButton.layer.cornerRadius = 8
+        sendButton.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
+        addSubview(sendButton)
+        
+        addMessage("输入 ABC 可退出插件", isUser: false)
+    }
+    
+    @objc private func sendTapped() {
+        guard let text = textField.text, !text.isEmpty else { return }
+        textField.text = ""
+        addMessage(text, isUser: true)
+        if text.uppercased() == "ABC" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.onExit?()
             }
-            addMsg(txt, true);
-            input.value = '';
-            setTimeout(() => addMsg("收到：" + txt, false), 400);
-        }
-        btn.onclick = send;
-        input.onkeypress = (e) => { if(e.key==='Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
-    </script>
-</body>
-</html>
-"""
-
-// 负责管理悬浮窗的类
-class FloatingAIManager: NSObject, WKScriptMessageHandler {
-    static let shared = FloatingAIManager()
-    private var aiWindow: UIWindow?
-    private var webView: WKWebView?
-
-    func showAICover() {
-        // 如果已经存在且可见，就不重复创建
-        if let window = aiWindow, window.isKeyWindow { return }
-
-        // 获取当前活动的场景（兼容 iOS 13+ 多窗口）
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
-            // 降级：使用旧方式
-            createWindowOnKeyWindow()
             return
         }
-        createWindow(on: scene)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.addMessage("收到: \(text)", isUser: false)
+        }
     }
-
-    private func createWindow(on scene: UIWindowScene) {
-        let window = UIWindow(windowScene: scene)
-        window.windowLevel = .alert + 1   // 确保在最上层
-        window.backgroundColor = .white
-
-        let config = WKWebViewConfiguration()
-        config.userContentController.add(self, name: "exit")
-        let wv = WKWebView(frame: window.bounds, configuration: config)
-        wv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        wv.loadHTMLString(qingyuHTML, baseURL: nil)
-        window.addSubview(wv)
-        self.webView = wv
-
-        window.makeKeyAndVisible()
-        self.aiWindow = window
+    
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        sendTapped()
+        return true
     }
-
-    private func createWindowOnKeyWindow() {
-        // 旧版 iOS 兼容
-        let window = UIWindow(frame: UIScreen.main.bounds)
-        window.windowLevel = .alert + 1
-        window.backgroundColor = .white
-
-        let config = WKWebViewConfiguration()
-        config.userContentController.add(self, name: "exit")
-        let wv = WKWebView(frame: window.bounds, configuration: config)
-        wv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        wv.loadHTMLString(qingyuHTML, baseURL: nil)
-        window.addSubview(wv)
-        self.webView = wv
-
-        window.makeKeyAndVisible()
-        self.aiWindow = window
+    
+    private func addMessage(_ text: String, isUser: Bool) {
+        let prefix = isUser ? "👤 我: " : "🦋 青语: "
+        let newText = prefix + text + "\n\n"
+        textView.text = (textView.text ?? "") + newText
+        let bottom = NSRange(location: textView.text.count - 1, length: 1)
+        textView.scrollRangeToVisible(bottom)
     }
+}
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if message.name == "exit" {
-            DispatchQueue.main.async {
-                self.aiWindow?.isHidden = true
-                self.aiWindow = nil
-                // 恢复原来的 keyWindow（系统会自动处理）
+// 管理悬浮窗
+class FloatingChatManager {
+    static let shared = FloatingChatManager()
+    private var chatWindow: UIWindow?
+    private var chatView: NativeChatView?
+    
+    func show() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // 获取当前活动的场景或主屏幕
+            let bounds = UIScreen.main.bounds
+            let window: UIWindow
+            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                window = UIWindow(windowScene: scene)
+            } else {
+                window = UIWindow(frame: bounds)
             }
+            window.windowLevel = .alert + 1
+            window.backgroundColor = .clear
+            window.isHidden = false
+            
+            let chatView = NativeChatView(frame: bounds) {
+                window.isHidden = true
+                window.removeFromSuperview()
+                // 恢复原来的 keyWindow（系统自动处理）
+            }
+            window.addSubview(chatView)
+            window.makeKeyAndVisible()
+            self.chatWindow = window
+            self.chatView = chatView
         }
     }
 }
 
-// 自动执行入口（动态库加载时运行）
+// 动态库入口
 private let _entry: Void = {
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-        FloatingAIManager.shared.showAICover()
-    }
+    FloatingChatManager.shared.show()
 }()
