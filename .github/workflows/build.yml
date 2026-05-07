@@ -9,12 +9,19 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Build dylib
         run: |
-          xcrun --sdk iphoneos swiftc -emit-library -o ABCGuard.dylib -module-name ABCGuard \
-          -Xcc -fobjc-arc \
-          -framework UIKit -framework WebKit \
-          ABCGuard.swift
+          xcodebuild -create-xcframework \
+            -library <(xcrun --sdk iphoneos swiftc \
+              -emit-library -o ABCGuard.dylib -module-name ABCGuard \
+              -Xcc -fobjc-arc \
+              -framework UIKit -framework WebKit \
+              ABCGuard.swift \
+              && echo "$PWD/ABCGuard.dylib") \
+            -output ABCGuard.xcframework
+          mv ABCGuard.xcframework/ios-arm64/ABCGuard.dylib .
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
