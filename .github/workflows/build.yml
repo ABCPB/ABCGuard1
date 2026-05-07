@@ -13,7 +13,7 @@ jobs:
         run: |
           xcrun --sdk iphoneos swiftc -target arm64-apple-ios13.0 -emit-library -o ABCGuard.dylib -module-name ABCGuard \
           -Xcc -fobjc-arc \
-          -framework UIKit -framework WebKit \
+          -framework UIKit \
           ABCGuard.swift
       - name: Upload artifact
         uses: actions/upload-artifact@v4
