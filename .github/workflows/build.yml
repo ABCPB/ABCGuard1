@@ -1,9 +1,8 @@
 name: Build ABCGuard.dylib
-
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch:   # <-- 手动触发必须有这行
 
 jobs:
   build:
